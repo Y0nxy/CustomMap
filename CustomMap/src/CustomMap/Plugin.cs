@@ -16,6 +16,7 @@ namespace CustomMap
     {
         internal static ManualLogSource Log { get; private set; } = null!;
         private static ConfigEntry<string> Level = null!;
+        public static ConfigEntry<bool> AdvanceLevels = null!;
         private static ConfigEntry<float> ropeLength = null!;
         private static ConfigEntry<bool> enableRopePatch = null!;
 
@@ -39,8 +40,8 @@ namespace CustomMap
         // Increase further if the vanilla map is still visible.
         private static readonly Vector3 SpawnPosition = new Vector3(0f, 10f, 0f);
         private static readonly Quaternion SpawnRotation = Quaternion.identity;
-        private static AssetBundle _loadedBundle = null; 
-
+        private static AssetBundle _loadedBundle = null;
+        static string[] Levels = ["Intro", "Train", "Carry", "Climb", "Break"];// for now break%
         // -----------------------------------------------------------------------
 
         private void Awake()
@@ -48,6 +49,7 @@ namespace CustomMap
             Instance = this;
             Log = Logger;
             Level = Config.Bind("Map", "Map Name", "Carry", "Name of the prefab to spawn, without the .prefab extension. Must match an asset in the bundle.");
+            AdvanceLevels = Config.Bind("Map", "Advance Levels", true);
             enableRopePatch = Config.Bind("Map", "CustomRope", true);
             ropeLength = Config.Bind("Map", "Rope Length", 100f);
             Level.SettingChanged += (s, e) =>
@@ -204,7 +206,7 @@ namespace CustomMap
             map.name = Instance.PrefabName; // remove "(Clone)" for the duplicate-check above
             map.transform.Find("Directional Light")?.gameObject.SetActive(false);
             AttachScriptsToGameObjets(map);
-            DebugLogRendererState(map); // <-- add this line
+            //DebugLogRendererState(map);
             ClearSceneFog();
             HideSceneWalls();
             Log.LogInfo($"CustomMap: Spawned \"{Instance.PrefabName}\" at {SpawnPosition}.");
@@ -477,7 +479,6 @@ namespace CustomMap
                 if (name.Contains("FallTrigger")) child.gameObject.AddComponent<FallTrigger>();
                 if (name.Contains("PassTrigger")) child.gameObject.AddComponent<PassTrigger>();
             }
-            map.AddComponent<DeathZoneTp>();
             map.AddComponent<PVSyncer>();
         }
 
@@ -506,6 +507,56 @@ namespace CustomMap
             //if (spawnPoints != null) Destroy(spawnPoints);
             //spawnPoints = GameObject.Find("Misc/SpawnPoints (1)");
             //if (spawnPoints != null) Destroy(spawnPoints);
+        }
+        public static void LoadNextLevel(bool ResetCurrentLevel = false)
+        {
+            //do stuff
+            int numberInArray = 0;
+            foreach (string level in Levels)
+            {
+                string cleanName = Instance.PrefabName.Replace(path, "").Replace(".prefab", "");
+                if (level.Equals(cleanName))
+                {
+                    if (!ResetCurrentLevel) numberInArray++;
+                    LoadLevelRemoveLastLevel(numberInArray);
+                    break;
+                }
+                numberInArray++;
+            }
+        }
+        private static void LoadLevelRemoveLastLevel(int numberInArray)
+        {
+            if (numberInArray >= Levels.Length)
+            {
+                Log.LogInfo("Last Level!");
+                return;
+            }
+            string nextLevel = Levels[numberInArray];
+            Log.LogInfo("Loading Level: " + nextLevel);
+            GameObject lastLevel = GameObject.Find(Instance.PrefabName);
+            if (lastLevel != null) Destroy(lastLevel);
+            Instance.PrefabName = path + nextLevel + ".prefab";
+            Instance.StartCoroutine(SpawnMapWhenReady());
+        }
+        public static bool isLastLevel()
+        {
+            int numberInArray = 0;
+            foreach (string level in Levels)
+            {
+                string cleanName = Instance.PrefabName.Replace(path, "").Replace(".prefab", "");
+                if (level.Equals(cleanName))
+                {
+                    numberInArray++;
+                    break;
+                }
+                numberInArray++;
+            }
+            if (numberInArray >= Levels.Length)
+            {
+                Log.LogInfo("Last Level!");
+                return true;
+            }
+            return false;
         }
     }
 }

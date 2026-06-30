@@ -141,30 +141,16 @@ namespace CustomMap
 
         // ─────────────────────────────────────────────────────────────────────
         // Core: build shards
-        // All mesh vertices are in the SHARD'S OWN LOCAL SPACE.
-        // The shard GO is placed at the shard centroid in world space.
-        // The shard GO's rotation = the glass pane's rotation.
-        // So local X/Y/Z of shard == local X/Y/Z of glass pane.
-        // We just need to know which local axis is "thin" (thickness).
         // ─────────────────────────────────────────────────────────────────────
         void BuildShards(Vector3 contactWorld, Vector3 impulse, int seed)
         {
-            // Pane local size (before scale)
             Vector3 sz = col.size;
             Vector3 sc = transform.lossyScale;
-            // World-space extents
             float wx = sz.x * sc.x;
             float wy = sz.y * sc.y;
             float wz = sz.z * sc.z;
 
-            // Identify thickness axis by smallest world extent
-            // axisA, axisB = the two wide axes (pane plane)
-            // axisT        = thin axis (thickness)
-            // halfA, halfB = half-extents of the plane
-            // halfT        = half-thickness
             float halfA, halfB, halfT;
-            // We'll work in LOCAL SPACE of the pane, then place shards
-            // using localPosition relative to the pane.
             int thinAxis; // 0=X, 1=Y, 2=Z
             if (wx <= wy && wx <= wz) { thinAxis = 0; halfT = sz.x * 0.5f; halfA = sz.y * 0.5f; halfB = sz.z * 0.5f; }
             else if (wy <= wx && wy <= wz) { thinAxis = 1; halfT = sz.y * 0.5f; halfA = sz.x * 0.5f; halfB = sz.z * 0.5f; }
@@ -175,14 +161,12 @@ namespace CustomMap
             float area = paneW * paneH;
             float massPerArea = totalMass / Mathf.Max(area, 0.0001f);
 
-            // Contact in pane local space
             Vector3 localContact = transform.InverseTransformPoint(contactWorld) - col.center;
             float cu, cv;
             LocalToAB(localContact, thinAxis, out cu, out cv);
             cu = Mathf.Clamp(cu, -halfA, halfA);
             cv = Mathf.Clamp(cv, -halfB, halfB);
 
-            // Voronoi seeds in 2D (A,B) space
             UnityEngine.Random.State saved = UnityEngine.Random.state;
             UnityEngine.Random.InitState(seed);
 
@@ -199,60 +183,71 @@ namespace CustomMap
             float maxR = Mathf.Min(halfA, halfB) * 0.9f;
             for (int i = sc2; i < total; i++)
             {
-                for (int t = 0; t < 500; t++)
+                bool placed = false;
+                for (int t = 0; t < 60; t++)
                 {
                     float r = UnityEngine.Random.Range(0f, maxR) * UnityEngine.Random.Range(0f, 1f);
                     Vector2 d = UnityEngine.Random.insideUnitCircle.normalized;
                     float a2 = cu + d.x * r;
                     float b2 = cv + d.y * r;
                     if (a2 >= -halfA && a2 <= halfA && b2 >= -halfB && b2 <= halfB)
-                    { sa[i] = a2; sb[i] = b2; break; }
+                    { sa[i] = a2; sb[i] = b2; placed = true; break; }
+                }
+                if (!placed)
+                {
+                    sa[i] = UnityEngine.Random.Range(-halfA, halfA);
+                    sb[i] = UnityEngine.Random.Range(-halfB, halfB);
                 }
             }
+
+            const float minSeedSepSq = 0.0001f;
+            for (int i = 0; i < total; i++)
+            {
+                for (int j = i + 1; j < total; j++)
+                {
+                    float dx = sa[i] - sa[j], dy = sb[i] - sb[j];
+                    if (dx * dx + dy * dy < minSeedSepSq)
+                    {
+                        sa[j] = Mathf.Clamp(sa[j] + UnityEngine.Random.Range(-0.05f, 0.05f), -halfA, halfA);
+                        sb[j] = Mathf.Clamp(sb[j] + UnityEngine.Random.Range(-0.05f, 0.05f), -halfB, halfB);
+                    }
+                }
+            }
+
             UnityEngine.Random.state = saved;
 
-            // Voronoi diagram
-            var edges = ComputeVoronoi(sa, sb, -halfA, halfA, -halfB, halfB, total);
-            var cellVerts = new List<Vector2>[total];
-            for (int k = 0; k < total; k++) cellVerts[k] = new List<Vector2>();
-
-            foreach (var e in edges)
-            {
-                AddUnique(cellVerts[e.s1], new Vector2(e.x1, e.y1));
-                AddUnique(cellVerts[e.s1], new Vector2(e.x2, e.y2));
-                AddUnique(cellVerts[e.s2], new Vector2(e.x1, e.y1));
-                AddUnique(cellVerts[e.s2], new Vector2(e.x2, e.y2));
-            }
-            CornerToNearest(new Vector2(-halfA, -halfB), sa, sb, total, cellVerts);
-            CornerToNearest(new Vector2(-halfA, halfB), sa, sb, total, cellVerts);
-            CornerToNearest(new Vector2(halfA, -halfB), sa, sb, total, cellVerts);
-            CornerToNearest(new Vector2(halfA, halfB), sa, sb, total, cellVerts);
+            var cellPolys = new List<Vector2>[total];
+            for (int k = 0; k < total; k++)
+                cellPolys[k] = BuildCellPolygon(k, sa, sb, total, -halfA, halfA, -halfB, halfB);
 
             Vector3 impDir = impulse.normalized;
-            float baseForce = Mathf.Clamp(impulse.magnitude, minExplodeImpulse, maxExplodeImpulse)
-                                  * perShardImpulseFraction;
+            float baseForce = Mathf.Clamp(impulse.magnitude, minExplodeImpulse, maxExplodeImpulse) * perShardImpulseFraction;
 
             Transform spawnRoot = parentObject != null ? parentObject
                                 : transform.parent != null ? transform.parent
                                 : transform;
 
+            Vector3 frontNorm = ABTToLocal(0f, 0f, 1f, thinAxis).normalized;
+            Vector3 backNorm = ABTToLocal(0f, 0f, -1f, thinAxis).normalized;
+
             for (int n = 0; n < total; n++)
             {
-                var verts2D = cellVerts[n];
-                if (verts2D.Count < 3) continue;
-
-                // Centroid in 2D
-                Vector2 cen = Vector2.zero;
-                foreach (var v in verts2D) cen += v;
-                cen /= verts2D.Count;
-
-                // Sort CCW
-                verts2D.Sort((a, b) =>
-                    Mathf.Atan2(a.y - cen.y, a.x - cen.x)
-                    .CompareTo(Mathf.Atan2(b.y - cen.y, b.x - cen.x)));
-
+                var verts2D = cellPolys[n];
                 int count = verts2D.Count;
                 if (count < 3) continue;
+
+                // 1. Force the 2D polygon to be strictly Counter-Clockwise (CCW)
+                float signedArea = 0f;
+                for (int q = 0; q < count; q++)
+                {
+                    Vector2 p0 = verts2D[q];
+                    Vector2 p1 = verts2D[(q + 1) % count];
+                    signedArea += (p0.x * p1.y - p1.x * p0.y);
+                }
+                if (signedArea < 0f)
+                {
+                    verts2D.Reverse();
+                }
 
                 if (cellInset > 0f)
                 {
@@ -270,61 +265,57 @@ namespace CustomMap
                     verts2D = inset; count = verts2D.Count;
                 }
 
-                // ── Build mesh in SHARD LOCAL SPACE ──────────────────────────
-                // Shard local space == pane local space (same rotation).
-                // Centroid is the origin of the shard GO.
-                // AB coords → local 3D via ABTToLocal, offset from centroid.
+                // Centroid
+                Vector2 cen = Vector2.zero;
+                foreach (var v in verts2D) cen += v;
+                cen /= verts2D.Count;
 
-                // We build 3 groups of vertices with explicit normals for
-                // correct lighting on all faces.
+                // 2. Determine if 3D mapping inverted the handedness by checking mapping determinant
+                Vector3 m0 = ABTToLocal(verts2D[0].x, verts2D[0].y, 0f, thinAxis);
+                Vector3 m1 = ABTToLocal(verts2D[1].x, verts2D[1].y, 0f, thinAxis);
+                Vector3 m2 = ABTToLocal(verts2D[2].x, verts2D[2].y, 0f, thinAxis);
+                Vector3 mapNorm = Vector3.Cross(m1 - m0, m2 - m0);
+                bool flip3D = Vector3.Dot(mapNorm, frontNorm) < 0f;
 
-                // Front face:  thinAxis = +halfT (relative to centroid = 0)
-                // Back face:   thinAxis = -halfT
-                // Side walls:  one quad per edge, with outward normals
-
-                // ── Face normals ──
-                Vector3 frontNorm = ABTToLocal(0f, 0f, 1f, thinAxis).normalized;
-                Vector3 backNorm = ABTToLocal(0f, 0f, -1f, thinAxis).normalized;
-
-                int totalVerts = count * 2        // front (count) + back (count)
-                                 + count * 4;       // sides: 4 verts per edge (own normals)
+                int totalVerts = count * 2 + count * 4;
                 var mv = new Vector3[totalVerts];
                 var mn = new Vector3[totalVerts];
                 var muv = new Vector2[totalVerts];
                 var tris = new List<int>();
 
-                // Pane UV scale for texturing
                 float uvScaleA = 1f / (halfA * 2f);
                 float uvScaleB = 1f / (halfB * 2f);
 
-                // ── Front face verts [0 .. count-1] ──
+                // ── Front face ──
                 for (int q = 0; q < count; q++)
                 {
                     Vector2 rel = verts2D[q] - cen;
                     mv[q] = ABTToLocal(rel.x, rel.y, halfT, thinAxis);
                     mn[q] = frontNorm;
-                    muv[q] = new Vector2((verts2D[q].x + halfA) * uvScaleA,
-                                         (verts2D[q].y + halfB) * uvScaleB);
+                    muv[q] = new Vector2((verts2D[q].x + halfA) * uvScaleA, (verts2D[q].y + halfB) * uvScaleB);
                 }
-                // Front fan CCW
                 for (int q = 1; q < count - 1; q++)
-                { tris.Add(0); tris.Add(q); tris.Add(q + 1); }
+                {
+                    if (!flip3D) { tris.Add(0); tris.Add(q); tris.Add(q + 1); }
+                    else { tris.Add(0); tris.Add(q + 1); tris.Add(q); }
+                }
 
-                // ── Back face verts [count .. 2*count-1] ──
+                // ── Back face ──
                 int bOff = count;
                 for (int q = 0; q < count; q++)
                 {
                     Vector2 rel = verts2D[q] - cen;
                     mv[bOff + q] = ABTToLocal(rel.x, rel.y, -halfT, thinAxis);
                     mn[bOff + q] = backNorm;
-                    muv[bOff + q] = new Vector2((verts2D[q].x + halfA) * uvScaleA,
-                                               (verts2D[q].y + halfB) * uvScaleB);
+                    muv[bOff + q] = new Vector2((verts2D[q].x + halfA) * uvScaleA, (verts2D[q].y + halfB) * uvScaleB);
                 }
-                // Back fan CW (reversed winding for back face)
                 for (int q = 1; q < count - 1; q++)
-                { tris.Add(bOff); tris.Add(bOff + q + 1); tris.Add(bOff + q); }
+                {
+                    if (!flip3D) { tris.Add(bOff); tris.Add(bOff + q + 1); tris.Add(bOff + q); }
+                    else { tris.Add(bOff); tris.Add(bOff + q); tris.Add(bOff + q + 1); }
+                }
 
-                // ── Side walls: 4 unique verts per edge, with outward normals ──
+                // ── Side walls ──
                 int sOff = count * 2;
                 for (int q = 0; q < count; q++)
                 {
@@ -337,9 +328,8 @@ namespace CustomMap
                     Vector3 vBackA = ABTToLocal(rA.x, rA.y, -halfT, thinAxis);
                     Vector3 vBackB = ABTToLocal(rB.x, rB.y, -halfT, thinAxis);
 
-                    // Outward normal = perpendicular to edge in AB plane, pointing out
                     Vector2 edgeDir = (rB - rA).normalized;
-                    Vector2 outDir2D = new Vector2(edgeDir.y, -edgeDir.x); // rotate 90° outward
+                    Vector2 outDir2D = new Vector2(edgeDir.y, -edgeDir.x);
                     Vector3 sideNorm = ABTToLocal(outDir2D.x, outDir2D.y, 0f, thinAxis).normalized;
 
                     int vi = sOff + q * 4;
@@ -348,16 +338,23 @@ namespace CustomMap
                     mv[vi + 2] = vBackB; mn[vi + 2] = sideNorm;
                     mv[vi + 3] = vBackA; mn[vi + 3] = sideNorm;
 
-                    // UVs along the side: U = distance along edge, V = 0 (front) or 1 (back)
                     float edgeLen = (rB - rA).magnitude;
                     muv[vi + 0] = new Vector2(0f, 1f);
                     muv[vi + 1] = new Vector2(edgeLen, 1f);
                     muv[vi + 2] = new Vector2(edgeLen, 0f);
                     muv[vi + 3] = new Vector2(0f, 0f);
 
-                    // Two triangles for quad (CCW from outside)
-                    tris.Add(vi + 0); tris.Add(vi + 1); tris.Add(vi + 2);
-                    tris.Add(vi + 0); tris.Add(vi + 2); tris.Add(vi + 3);
+                    // 3. Conditional quad winding for sides
+                    if (!flip3D)
+                    {
+                        tris.Add(vi + 0); tris.Add(vi + 3); tris.Add(vi + 2);
+                        tris.Add(vi + 0); tris.Add(vi + 2); tris.Add(vi + 1);
+                    }
+                    else
+                    {
+                        tris.Add(vi + 0); tris.Add(vi + 1); tris.Add(vi + 2);
+                        tris.Add(vi + 0); tris.Add(vi + 2); tris.Add(vi + 3);
+                    }
                 }
 
                 var mesh = new Mesh { name = "shard" + n };
@@ -367,16 +364,9 @@ namespace CustomMap
                 mesh.triangles = tris.ToArray();
                 mesh.RecalculateBounds();
 
-                // Polygon area for mass
-                float polyArea = 0f;
-                for (int q = 0; q < count; q++)
-                {
-                    Vector2 a2 = verts2D[q], b2 = verts2D[(q + 1) % count];
-                    polyArea += a2.x * b2.y - b2.x * a2.y;
-                }
-                polyArea = Mathf.Abs(polyArea) * 0.5f;
+                float polyArea = Mathf.Abs(signedArea) * 0.5f;
 
-                // ── Create shard GO ───────────────────────────────────────────
+                // ── Create shard GO ──
                 GameObject shard;
                 MeshFilter mf = null;
                 MeshRenderer mr = null;
@@ -404,19 +394,17 @@ namespace CustomMap
                 if (!mr) mr = shard.AddComponent<MeshRenderer>();
                 if (mat) mr.sharedMaterial = mat;
 
-                // ── Position shard in world space ─────────────────────────────
-                // Centroid in pane local space (offset by collider center)
                 Vector3 cenLocal = ABTToLocal(cen.x, cen.y, 0f, thinAxis) + col.center;
                 Vector3 cenWorld = transform.TransformPoint(cenLocal);
 
                 shard.transform.SetPositionAndRotation(cenWorld, transform.rotation);
                 shard.transform.SetParent(spawnRoot, worldPositionStays: true);
 
-                // BoxCollider from mesh bounds
-                var bc = shard.AddComponent<BoxCollider>();
+                var bc = shard.AddComponent<MeshCollider>();
                 bc.sharedMaterial = physicsMaterial;
-                bc.center = Vector3.zero;
-                bc.size = mesh.bounds.size + Vector3.one * 0.001f;
+                bc.convex = true;
+                //bc.center = Vector3.zero;
+                //bc.size = mesh.bounds.size + Vector3.one * 0.001f;
 
                 var rb = shard.AddComponent<Rigidbody>();
                 rb.mass = Mathf.Max(0.05f, polyArea * massPerArea);
@@ -425,7 +413,7 @@ namespace CustomMap
                 sfx.spatialBlend = 1f; sfx.playOnAwake = false;
                 sfx.pitch = Mathf.Clamp(8f / rb.mass, 0.85f, 1.15f);
 
-                float fmag = Mathf.Clamp(baseForce, 0f, maxShardVelocity * rb.mass);
+                float fmag = Mathf.Clamp(baseForce * 0.005f, 0f, maxShardVelocity * rb.mass);
                 Vector3 seedL = ABTToLocal(sa[n], sb[n], 0f, thinAxis) + col.center;
                 Vector3 seedW = transform.TransformPoint(seedL);
                 Vector3 fpos = Vector3.Lerp(contactWorld, seedW, 0.3f);
@@ -436,16 +424,13 @@ namespace CustomMap
         }
 
         // ── Coordinate helpers ────────────────────────────────────────────────
-        // thinAxis: 0=X, 1=Y, 2=Z
-        // A,B are the two wide axes; T is along the thin axis.
-        // Returns a LOCAL SPACE Vector3.
         static Vector3 ABTToLocal(float a, float b, float t, int thinAxis)
         {
             switch (thinAxis)
             {
-                case 0: return new Vector3(t, a, b);   // thin=X, A=Y, B=Z
-                case 1: return new Vector3(a, t, b);   // thin=Y, A=X, B=Z
-                default: return new Vector3(a, b, t);  // thin=Z, A=X, B=Y
+                case 0: return new Vector3(t, a, b);
+                case 1: return new Vector3(a, t, b);
+                default: return new Vector3(a, b, t);
             }
         }
 
@@ -459,71 +444,63 @@ namespace CustomMap
             }
         }
 
-        // ── Voronoi ───────────────────────────────────────────────────────────
-        struct Edge { public float x1, y1, x2, y2; public int s1, s2; }
-
-        static List<Edge> ComputeVoronoi(float[] sx, float[] sy,
-            float minA, float maxA, float minB, float maxB, int n)
+        // ── Voronoi cells via half-plane clipping ──────────────────────────────
+        static List<Vector2> BuildCellPolygon(int i, float[] sx, float[] sy, int n,
+            float minA, float maxA, float minB, float maxB)
         {
-            var result = new List<Edge>();
-            for (int i = 0; i < n; i++)
-                for (int j = i + 1; j < n; j++)
+            var poly = new List<Vector2>
+            {
+                new Vector2(minA, minB),
+                new Vector2(maxA, minB),
+                new Vector2(maxA, maxB),
+                new Vector2(minA, maxB)
+            };
+
+            float px = sx[i], py = sy[i];
+
+            for (int j = 0; j < n; j++)
+            {
+                if (j == i) continue;
+                float qx = sx[j], qy = sy[j];
+
+                float mx = (px + qx) * 0.5f, my = (py + qy) * 0.5f;
+                float dx = qx - px, dy = qy - py;
+                float distSq = dx * dx + dy * dy;
+                if (distSq < 1e-10f) continue;
+
+                poly = ClipPolygonHalfPlane(poly, mx, my, dx, dy);
+                if (poly.Count == 0) break;
+            }
+            return poly;
+        }
+
+        static List<Vector2> ClipPolygonHalfPlane(List<Vector2> poly, float mx, float my, float dirX, float dirY)
+        {
+            var out_ = new List<Vector2>();
+            int count = poly.Count;
+            if (count == 0) return out_;
+
+            for (int k = 0; k < count; k++)
+            {
+                Vector2 curr = poly[k];
+                Vector2 next = poly[(k + 1) % count];
+
+                float dCurr = (curr.x - mx) * dirX + (curr.y - my) * dirY;
+                float dNext = (next.x - mx) * dirX + (next.y - my) * dirY;
+
+                bool currIn = dCurr <= 0f;
+                bool nextIn = dNext <= 0f;
+
+                if (currIn) out_.Add(curr);
+
+                if (currIn != nextIn)
                 {
-                    float ax = sx[i], ay = sy[i], bx = sx[j], by = sy[j];
-                    float mx = (ax + bx) * .5f, my = (ay + by) * .5f;
-                    float dx = -(by - ay), dy = bx - ax;
-                    float len = Mathf.Sqrt(dx * dx + dy * dy);
-                    if (len < 1e-7f) continue;
-                    dx /= len; dy /= len;
-                    float ext = (maxA - minA + maxB - minB) * 4f;
-                    float ex1 = mx - dx * ext, ey1 = my - dy * ext, ex2 = mx + dx * ext, ey2 = my + dy * ext;
-                    if (!Clip(ref ex1, ref ey1, ref ex2, ref ey2, minA, maxA, minB, maxB)) continue;
-                    if ((ex2 - ex1) * (ex2 - ex1) + (ey2 - ey1) * (ey2 - ey1) < 1e-8f) continue;
-                    float smx = (ex1 + ex2) * .5f, smy = (ey1 + ey2) * .5f;
-                    float dI = D2(smx, smy, ax, ay), dJ = D2(smx, smy, bx, by);
-                    float thr = Mathf.Max(dI, dJ) * 1.0001f;
-                    bool ok = true;
-                    for (int k = 0; k < n && ok; k++)
-                        if (k != i && k != j && D2(smx, smy, sx[k], sy[k]) < thr) ok = false;
-                    if (ok) result.Add(new Edge { x1 = ex1, y1 = ey1, x2 = ex2, y2 = ey2, s1 = i, s2 = j });
+                    float t = dCurr / (dCurr - dNext);
+                    Vector2 inter = curr + (next - curr) * t;
+                    out_.Add(inter);
                 }
-            return result;
-        }
-
-        static float D2(float ax, float ay, float bx, float by)
-        { float dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
-
-        static bool Clip(ref float x0, ref float y0, ref float x1, ref float y1,
-                         float l, float r, float b, float t)
-        {
-            int C(float x, float y) { int c = 0; if (x < l) c |= 1; else if (x > r) c |= 2; if (y < b) c |= 4; else if (y > t) c |= 8; return c; }
-            int c0 = C(x0, y0), c1 = C(x1, y1);
-            for (; ; )
-            {
-                if ((c0 | c1) == 0) return true;
-                if ((c0 & c1) != 0) return false;
-                int co = c0 != 0 ? c0 : c1; float x, y;
-                if ((co & 8) != 0) { x = x0 + (x1 - x0) * (t - y0) / (y1 - y0); y = t; }
-                else if ((co & 4) != 0) { x = x0 + (x1 - x0) * (b - y0) / (y1 - y0); y = b; }
-                else if ((co & 2) != 0) { y = y0 + (y1 - y0) * (r - x0) / (x1 - x0); x = r; }
-                else { y = y0 + (y1 - y0) * (l - x0) / (x1 - x0); x = l; }
-                if (co == c0) { x0 = x; y0 = y; c0 = C(x0, y0); } else { x1 = x; y1 = y; c1 = C(x1, y1); }
             }
-        }
-
-        static void AddUnique(List<Vector2> list, Vector2 v)
-        { if (!list.Contains(v)) list.Add(v); }
-
-        static void CornerToNearest(Vector2 corner, float[] sa, float[] sb,
-                                     int n, List<Vector2>[] cv)
-        {
-            float best = float.MaxValue; int bi = 0;
-            for (int i = 0; i < n; i++)
-            {
-                float d = (corner.x - sa[i]) * (corner.x - sa[i]) + (corner.y - sb[i]) * (corner.y - sb[i]);
-                if (d < best) { best = d; bi = i; }
-            }
-            AddUnique(cv[bi], corner);
+            return out_;
         }
 
         // ── Photon ViewIDs ────────────────────────────────────────────────────

@@ -4,16 +4,26 @@ using System.Text;
 using UnityEngine;
 
 namespace CustomMap
-{
+{//Check if this works!
     public class PassTrigger : MonoBehaviour
     {
-        
-        private void OnTriggerEnter(Collision other)
+        GameObject FallTriggerGameObject = null;
+        private void OnTriggerEnter(Collider other)
         {
-            Character c = other.gameObject.GetComponent<Character>();
+            RigCreatorCollider c = other.gameObject.GetComponent<RigCreatorCollider>();
+            //Plugin.Log.LogInfo("PassTrigger Triggered!");
             if (c != null)
             {
-                Plugin.Log.LogInfo("Level Beat by "+c.name);
+                if (FallTriggerGameObject == null)
+                     FallTriggerGameObject = GameObject.Find("FallTrigger");
+                if (FallTriggerGameObject == null)
+                {
+                    Plugin.Log.LogError("FallTrigger not found in PassTrigger!");
+                    return;
+                }
+                FallTriggerGameObject.GetComponent<FallTrigger>().isLevelBeat = true;
+                Plugin.Log.LogInfo("PassTrigger Reached!");
+                Destroy(this);
                 //do stuff
             }
         }
