@@ -4,16 +4,18 @@ using UnityEngine;
 public class RigidBodyStandable : MonoBehaviour
 {
     float originalMass = 0f;
-    Vector3 originalPos;
+    public Vector3 originalPos;
+    public Quaternion originalRot;
     float standableMass = 700f;
     Rigidbody rb = null;
     private int playersOnTop = 0;
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
-        if (rb == null) this.GetComponent<RigidBodyStandable>().enabled = false;
-        originalPos = transform.position;
+        if (rb == null) Destroy(this);
+        originalPos = rb.position;
         originalMass = rb.mass;
+        originalRot = rb.rotation;
     }
     private void OnCollisionEnter(Collision other)
     {

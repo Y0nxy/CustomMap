@@ -155,8 +155,8 @@ namespace CustomMap
                 yield break;
             }
 
-            SpawnMapPrefab();
             ClearNormalMap();
+            SpawnMapPrefab();
             Instance.StartCoroutine(WarpToSpawnWhenReady());
         }
 
@@ -228,12 +228,26 @@ namespace CustomMap
                     continue;
                 }
 
-                // Search the whole scene for the marker (works regardless of hierarchy depth)
+                GameObject rootPrefab = GameObject.Find(Instance.PrefabName);
+                if (rootPrefab == null) {
+                    yield return null;
+                    continue;
+                }
+
                 GameObject marker = null!;
-                foreach (string spawnMarkerName in SpawnMarkersName)
+                foreach (Transform t in rootPrefab.GetComponentsInChildren<Transform>())
                 {
-                    marker = GameObject.Find(Instance.PrefabName + "/" + spawnMarkerName);
-                    if (marker != null) break;
+                    bool isfound = false;
+                    foreach (string spawnMarkerName in SpawnMarkersName)
+                    {
+                        if (t.name == spawnMarkerName)
+                        {
+                            marker = t.gameObject;
+                            isfound = true;
+                            if (marker != null) break;
+                        }
+                    }
+                    if (isfound) break;
                 }
                 if (marker == null)
                 {
@@ -443,21 +457,28 @@ namespace CustomMap
                 }
                 if (name.Contains("Elevator_Apply")) child.gameObject.AddComponent<ElevatorLinear>();
                 if (name.Contains("ElevatorButton")) child.gameObject.AddComponent<ElevatorButton>();
+                if (child.GetComponent<Rigidbody>() != null)
+                {
+                    GameObject go = child.gameObject;
+                    if (go.GetComponent<Rigidbody>().mass < 700)
+                        go.AddComponent<RigidBodyStandable>();
+                }
                 if (name.Contains("Crate"))
                 {
                     GameObject go = child.gameObject;
                     go.AddComponent<PhotonView>();
                     //go.AddComponent<PhotonTransformView>();
                     go.AddComponent<PhotonRigidbodyView>();
-                    if (go.GetComponent<Rigidbody>().mass < 700)
-                        go.AddComponent<RigidBodyStandable>();
+                    //if (go.GetComponent<Rigidbody>().mass < 700)
+                    //    go.AddComponent<RigidBodyStandable>();
                     child.gameObject.layer = LayerMask.NameToLayer("Character");
                 }
                 if (name.Contains("Shatter")) child.transform.parent.gameObject.AddComponent<VoronoiShatter>();
                 if (name.Contains("FallTrigger")) child.gameObject.AddComponent<FallTrigger>();
+                if (name.Contains("PassTrigger")) child.gameObject.AddComponent<PassTrigger>();
             }
-            map.AddComponent<PVSyncer>();
             map.AddComponent<DeathZoneTp>();
+            map.AddComponent<PVSyncer>();
         }
 
         static void ClearNormalMap()
@@ -476,6 +497,15 @@ namespace CustomMap
                 if (go.layer == LayerMask.NameToLayer("Water")) Destroy(go);
                 if (go.GetComponent<ItemParticles>() != null) Destroy(go);
             }
+            GameObject Misc = GameObject.Find("Misc");
+            foreach (Transform t in Misc.transform)
+            {
+                if (t.name.Contains("Spawn")) Destroy(t.gameObject);
+            }
+            //GameObject spawnPoints = GameObject.Find("Misc/SpawnPoints");
+            //if (spawnPoints != null) Destroy(spawnPoints);
+            //spawnPoints = GameObject.Find("Misc/SpawnPoints (1)");
+            //if (spawnPoints != null) Destroy(spawnPoints);
         }
     }
 }

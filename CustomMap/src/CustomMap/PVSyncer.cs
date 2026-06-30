@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using Photon.Pun;
 using UnityEngine;
+using UnityEngine.Tilemaps;
 
 namespace CustomMap
 {
@@ -22,7 +23,7 @@ namespace CustomMap
             rootPV.ViewID = ROOT_VIEW_ID;
             Debug.Log($"[PVSyncer] Root ViewID set to {ROOT_VIEW_ID} — was already set: {viewIDSet}, actual ViewID after: {rootPV.ViewID}");
 
-            CollectRigidbodies();
+            CollectObjects();
 
             if (PhotonNetwork.IsMasterClient)
             {
@@ -44,7 +45,7 @@ namespace CustomMap
             }
         }
 
-        private void CollectRigidbodies()
+        private void CollectObjects()
         {
             modObjects.Clear();
 
@@ -52,7 +53,14 @@ namespace CustomMap
             foreach (Rigidbody rb in rigidbodies)
                 modObjects.Add(rb.gameObject);
 
-            Debug.Log($"[PVSyncer] CollectRigidbodies — found {modObjects.Count} rigidbodies.");
+            Tilemap[] tilemaps = GetComponentsInChildren<Tilemap>(true);
+            foreach (Tilemap tm in tilemaps)
+            {
+                if (!modObjects.Contains(tm.gameObject))
+                    modObjects.Add(tm.gameObject);
+            }
+
+            Debug.Log($"[PVSyncer] CollectObjects — found {modObjects.Count} objects ({rigidbodies.Length} rigidbodies, {tilemaps.Length} tilemaps).");
             for (int i = 0; i < modObjects.Count; i++)
                 Debug.Log($"[PVSyncer]   [{i}] {modObjects[i].name}");
         }
@@ -142,30 +150,51 @@ namespace CustomMap
                     continue;
                 }
 
-                Debug.Log($"[PVSyncer]   Assigning ViewID {viewID} to [{index}] {modObjects[index].name}");
-                AssignPhotonComponents(modObjects[index], viewID);
+                GameObject obj = modObjects[index];
+                bool hasRigidbody = obj.GetComponent<Rigidbody>() != null;
+                bool hasTilemap = obj.GetComponent<Tilemap>() != null;
+
+                Debug.Log($"[PVSyncer]   [{index}] {obj.name} — Rigidbody: {hasRigidbody}, Tilemap: {hasTilemap}");
+
+                PhotonView pv = obj.GetComponent<PhotonView>() ?? obj.AddComponent<PhotonView>();
+                pv.OwnershipTransfer = OwnershipOption.Fixed;
+
+                var observed = new List<Component>();
+
+                if (hasRigidbody)
+                {
+                    PhotonTransformView tv = obj.GetComponent<PhotonTransformView>() ?? obj.AddComponent<PhotonTransformView>();
+                    tv.m_SynchronizePosition = true;
+                    tv.m_SynchronizeRotation = true;
+                    tv.m_SynchronizeScale = false;
+
+                    PhotonRigidbodyView rv = obj.GetComponent<PhotonRigidbodyView>() ?? obj.AddComponent<PhotonRigidbodyView>();
+                    rv.m_SynchronizeVelocity = true;
+                    rv.m_SynchronizeAngularVelocity = true;
+
+                    observed.Add(tv);
+                    observed.Add(rv);
+                }
+
+                if (hasTilemap)
+                {
+                    Destroy(obj.GetComponent<Tilemap>());
+                    Debug.Log($"[PVSyncer] Tilemap removed from '{obj.name}'");
+
+                    TilemapRenderer tmr = obj.GetComponent<TilemapRenderer>();
+                    if (tmr != null)
+                    {
+                        Destroy(tmr);
+                        Debug.Log($"[PVSyncer] TilemapRenderer removed from '{obj.name}'");
+                    }
+                }
+
+                pv.ObservedComponents = observed;
+                pv.Synchronization = observed.Count > 0 ? ViewSynchronization.UnreliableOnChange : ViewSynchronization.Off;
+                pv.ViewID = viewID;
+
+                Debug.Log($"[PVSyncer] PhotonView on '{obj.name}' — ViewID: {pv.ViewID}, ObservedComponents: {pv.ObservedComponents.Count}, Sync: {pv.Synchronization}");
             }
-        }
-
-        private void AssignPhotonComponents(GameObject obj, int viewID)
-        {
-            PhotonView pv = obj.GetComponent<PhotonView>() ?? obj.AddComponent<PhotonView>();
-            PhotonTransformView tv = obj.GetComponent<PhotonTransformView>() ?? obj.AddComponent<PhotonTransformView>();
-            PhotonRigidbodyView rv = obj.GetComponent<PhotonRigidbodyView>() ?? obj.AddComponent<PhotonRigidbodyView>();
-
-            tv.m_SynchronizePosition = true;
-            tv.m_SynchronizeRotation = true;
-            tv.m_SynchronizeScale = false;
-
-            rv.m_SynchronizeVelocity = true;
-            rv.m_SynchronizeAngularVelocity = true;
-
-            pv.ObservedComponents = new List<Component> { tv, rv };
-            pv.Synchronization = ViewSynchronization.UnreliableOnChange;
-            pv.OwnershipTransfer = OwnershipOption.Fixed;
-
-            pv.ViewID = viewID;
-            Debug.Log($"[PVSyncer] AssignPhotonComponents done on '{obj.name}' — final ViewID: {pv.ViewID}, ObservedComponents: {pv.ObservedComponents.Count}");
         }
 
         public override void OnMasterClientSwitched(Photon.Realtime.Player newMasterClient)

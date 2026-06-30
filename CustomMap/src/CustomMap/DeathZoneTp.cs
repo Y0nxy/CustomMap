@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.PlayerLoop;
 
 namespace CustomMap
-{
+{//NOT USED
     internal class DeathZoneTp : MonoBehaviour
     {
         public Transform Checkpoint;

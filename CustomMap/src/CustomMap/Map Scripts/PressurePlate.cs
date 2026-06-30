@@ -2,6 +2,8 @@ using UnityEngine;
 
 public class PressurePlate : MonoBehaviour
 {
+    private float nextAllowedOffTime = 0f;
+    private float safetyBuffer = 0.25f; // Ensures light stays on for at least 0.25s
     [SerializeField] Light lit = null;
     public bool isPressed = false;
     public bool isDependant = false;
@@ -24,8 +26,11 @@ public class PressurePlate : MonoBehaviour
             objectsOnPlate++;
             Debug.LogWarning("Pressure plate pressed by: " + other.gameObject.name);
             if (objectsOnPlate != 1) return;
+            CancelInvoke(nameof(TurnVisualsOff));
             isPressed = true;
+            nextAllowedOffTime = Time.time + safetyBuffer;
             lit.enabled = isPressed;
+
             ToggleDoors(isPressed);
             if (gameObject.name.Contains("Button_Apply"))
             {
@@ -47,17 +52,18 @@ public class PressurePlate : MonoBehaviour
             if (objectsOnPlate < 0) objectsOnPlate = 0;
             Debug.LogWarning("Pressure plate released by: " + other.gameObject.name);
             if (objectsOnPlate != 0) return;
+            CancelInvoke(nameof(TurnVisualsOff));
             isPressed = false;
             ToggleDoors(isPressed);
-            lit.enabled = isPressed;
-            if (!gameObject.name.Contains("Button_Apply"))
+            // If they stepped off too fast, wait until the safety buffer expires before turning off
+            if (Time.time < nextAllowedOffTime)
             {
-                GetComponent<Renderer>().material.DisableKeyword("_EMISSION");
-                transform.localPosition = new Vector3(0, 0.1f, 0);
+                float remainingTime = nextAllowedOffTime - Time.time;
+                Invoke(nameof(TurnVisualsOff), remainingTime);
             }
             else
             {
-                transform.localPosition = new Vector3(0, 0, 0);
+                TurnVisualsOff(); // Turn off instantly if they stood on it long enough
             }
         }
     }
@@ -66,6 +72,22 @@ public class PressurePlate : MonoBehaviour
         foreach (AutomaticDoor door in transform.parent.parent.GetComponentsInChildren<AutomaticDoor>())
         {
             door.ToggleDoor(toOpen);
+        }
+    }
+
+    private void TurnVisualsOff()
+    {
+        if (lit != null) lit.enabled = false;
+        if (!gameObject.name.Contains("Button_Apply"))
+            GetComponent<Renderer>().material.DisableKeyword("_EMISSION");
+        if (!gameObject.name.Contains("Button_Apply"))
+        {
+            //GetComponent<Renderer>().material.DisableKeyword("_EMISSION");
+            transform.localPosition = new Vector3(0, 0.1f, 0);
+        }
+        else
+        {
+            transform.localPosition = new Vector3(0, 0, 0);
         }
     }
 }
