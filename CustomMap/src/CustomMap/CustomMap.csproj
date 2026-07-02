@@ -3,12 +3,12 @@
 	<PropertyGroup>
 		<TargetFramework>netstandard2.1</TargetFramework>
 		<LangVersion>latest</LangVersion>
-		<AssemblyName>YonDev.CustomMap</AssemblyName>
-		<RootNamespace>CustomMap</RootNamespace>
-		<AssemblyTitle>CustomMap</AssemblyTitle>
+		<AssemblyName>YonDev.ScoutFallFlat</AssemblyName>
+		<RootNamespace>ScoutFallFlat</RootNamespace>
+		<AssemblyTitle>ScoutFallFlat</AssemblyTitle>
 		<Version>0.1.0</Version>
 		<Nullable>disable</Nullable>
-		<OutputPath>C:\Users\yonij\AppData\Roaming\com.kesomannen.gale\peak\profiles\modTesting\BepInEx\plugins\YonDev.CustomMap\</OutputPath>
+		<OutputPath>C:\Users\yonij\AppData\Roaming\com.kesomannen.gale\peak\profiles\modTesting\BepInEx\plugins\YonDev.ScoutFallFlat\</OutputPath>
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
 		<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
