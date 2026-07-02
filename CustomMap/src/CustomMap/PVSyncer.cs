@@ -3,7 +3,7 @@ using Photon.Pun;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
-namespace CustomMap
+namespace ScoutFallFlat
 {
     public class PVSyncer : MonoBehaviourPunCallbacks
     {

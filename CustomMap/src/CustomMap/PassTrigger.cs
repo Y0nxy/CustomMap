@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-namespace CustomMap
+namespace ScoutFallFlat
 {//Check if this works!
     public class PassTrigger : MonoBehaviour
     {

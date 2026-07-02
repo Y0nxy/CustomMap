@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
-namespace CustomMap
+namespace ScoutFallFlat
 {//Check why this doesn't work!
     public class FallTrigger : MonoBehaviour
     {

@@ -9,7 +9,7 @@ using System.IO;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-namespace CustomMap
+namespace ScoutFallFlat
 {
     [BepInAutoPlugin]
     public partial class Plugin : BaseUnityPlugin
@@ -33,7 +33,7 @@ namespace CustomMap
 
         // Exact name of the prefab asset inside the bundle
         private const string path = "Assets/_Maps/Maps/";
-        private string PrefabName = path + "Carry.prefab";
+        private string PrefabName = path + "Intro.prefab";
         //private const string PrefabName = "Dropper Prefab";
 
         // Far from the vanilla map so your prefab doesn't clip into it.
@@ -48,17 +48,26 @@ namespace CustomMap
         {
             Instance = this;
             Log = Logger;
-            Level = Config.Bind("Map", "Map Name", "Carry", "Name of the prefab to spawn, without the .prefab extension. Must match an asset in the bundle.");
+            Level = Config.Bind("Map", "Map Name", "Intro", "Name of the prefab to spawn, without the .prefab extension. Must match an asset in the bundle.");
             AdvanceLevels = Config.Bind("Map", "Advance Levels", true);
-            enableRopePatch = Config.Bind("Map", "CustomRope", true);
+            enableRopePatch = Config.Bind("Map", "CustomRope", false);
             ropeLength = Config.Bind("Map", "Rope Length", 100f);
+            PrefabName = path + Level.Value + ".prefab";
             Level.SettingChanged += (s, e) =>
             {
-                PrefabName = path + Level.Value + ".prefab";
-                Log.LogInfo($"CustomMap: Map name changed to \"{Level.Value}\". Will spawn \"{PrefabName}\".");
+                foreach (string level in Levels)
+                {
+                    if (level.Equals(Level.Value, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        Level.Value = level;
+                        PrefabName = path + Level.Value + ".prefab";
+                        Log.LogInfo($"ScoutFallFlat: Map name changed to \"{Level.Value}\". Will spawn \"{PrefabName}\".");
+                        return;
+                    }
+                }
+                Log.LogWarning($"ScoutFallFlat: Map name \"{Level.Value}\" not found in Levels array. Will spawn \"{PrefabName}\".");
             };
 
-            PrefabName = path + Level.Value + ".prefab";
             Harmony.CreateAndPatchAll(typeof(SceneWatcher), Id);
             Harmony.CreateAndPatchAll(typeof(CustomRope));
             Log.LogInfo($"Plugin {Name} is loaded! Will spawn \"{PrefabName}\" from bundle \"{BundleFileName}\" on map load.");
@@ -258,6 +267,13 @@ namespace CustomMap
                 }
 
                 Vector3 spawnPos = marker.transform.position + Vector3.up * 1.5f;
+                local.data.sinceGrounded = 0f;
+                local.data.sinceJump = 0f;
+                foreach (Rigidbody rb in local.GetComponentsInChildren<Rigidbody>())
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
                 local.WarpPlayerRPC(spawnPos, false);
                 Log.LogInfo($"CustomMap: Warped local player to \"{marker.name}\" at {spawnPos}.");
                 yield break;

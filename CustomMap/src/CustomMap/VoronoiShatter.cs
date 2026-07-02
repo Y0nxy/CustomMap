@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Photon.Pun;
 using UnityEngine;
 
-namespace CustomMap
+namespace ScoutFallFlat
 {
     [RequireComponent(typeof(BoxCollider))]
     [RequireComponent(typeof(MeshRenderer))]
@@ -19,7 +19,7 @@ namespace CustomMap
         public float cellInset = 0f;
 
         [Header("Impact")]
-        public float impactThreshold = 650f;
+        public float impactThreshold = 500f;
         public float minExplodeImpulse = 0f;
         public float maxExplodeImpulse = float.PositiveInfinity;
         public float perShardImpulseFraction = 0.3f;
